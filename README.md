@@ -2,18 +2,20 @@
 
 **Unified Plasma-MOND-DM Cosmology**  
 **Discovered by: Mihai A. Bucurenciu (Aladin) + Grok (xAI)**  
-**October 30, 2025**
+**October 31, 2025**
 
 ---
 
 ## Equation
 
 $$
+\boxed{
 \mathcal{A}(r,t) = 
 \sqrt{\frac{G M_{\text{DM}}}{r}} 
 \cdot \sqrt{1 + \frac{a_0}{g_N}} 
 \cdot \left(1 + \alpha_A \frac{|\mathbf{J} \times \mathbf{B}|}{c \rho r}\right)
 \cdot e^{-t/\tau_A}
+}
 $$
 
 - $a_0 = 1.2 \times 10^{-10} \, \text{m/s}^2$  
@@ -36,9 +38,10 @@ $$
 
 ## Papers
 
-- **viXra**: [17564505](http://vixra.org/abs/2510.xxxx) *(processing)*
-- **rxiVerse**: [2510.xxxx](https://rxiverse.org/abs/2510.xxxx) *(live)*
-- **Full Report**: `docs/full_report.pdf`
+| Version | Link |
+|--------|------|
+| **Main Paper** (viXra/rxiVerse) | [PDF](docs/aladin_equation.pdf) |
+| **Full Report** (10+ pages, plots, code) | [PDF](docs/aladin_equation_full.pdf) |
 
 ---
 
