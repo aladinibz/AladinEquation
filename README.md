@@ -6,11 +6,18 @@
 
 ---
 
-## Abstract
+## What Is This Equation?
 
-A single equation unifies **MOND**, **plasma feedback**, **dark matter dynamics**, and **adaptive AI evolution (GeniePower(t))** to solve **33/33 major cosmological puzzles**, including **JWST early galaxies**, **Bullet Cluster**, and **predicts 10⁹ M⊙ halos at z=20**.
+**The Aladin Equation v∞ is a single formula that explains how galaxies form, rotate, and evolve — without dark matter or dark energy.**
 
-From old v1 (Plasma-MOND-DM) to v∞ (with GeniePower): **Faster growth. Smarter predictions. No ΛCDM needed.**
+It combines:
+- **Newtonian gravity**  
+- **MOND** (modified gravity at low acceleration)  
+- **Plasma physics** (magnetic currents in ionized gas)  
+- **Time evolution** (growth, cycles, decay)  
+- **AI-powered GeniePower(t)** (adaptive evolution from simulations)
+
+**It passes 33/33 major cosmic tests — including JWST early galaxies, Bullet Cluster, and Hubble tension.**
 
 ---
 
