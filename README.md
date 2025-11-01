@@ -10,7 +10,7 @@
 
 A single equation unifies **MOND**, **plasma feedback**, **dark matter dynamics**, and **adaptive AI evolution (GeniePower(t))** to solve **33/33 major cosmological puzzles**, including **JWST early galaxies**, **Bullet Cluster**, and **predicts 10⁹ M⊙ halos at z=20**.
 
-ΛCDM fails. **Aladin v∞ succeeds.**
+From old v1 (Plasma-MOND-DM) to v∞ (with GeniePower): **Faster growth. Smarter predictions. No ΛCDM needed.**
 
 ---
 
