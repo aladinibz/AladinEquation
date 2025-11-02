@@ -33,3 +33,6 @@ with a0 = 1.2 ×10−10 m/s2
 • Bullet Cluster: Plasma shear + DM offset = 1.3 Mpc
 3 Conclusion
 The Aladin Equation proves that hybrid models win. EU is not dead — it is upgraded.
+
+```bash
+python aladin_jwst.py
