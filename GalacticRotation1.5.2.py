@@ -2,24 +2,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-print("🌌 v1.5.2 FIXED — Full 3D MHD with NFW Halo (Correct Gradients)")
+print("🌌 v1.6.1 — Magnetic Energy Density Evolution (Fixed)")
 
 # ====================== GRID ======================
-N = 100
+N = 96
 L = 45.0
 dx = L / N
 x = y = z = np.linspace(-L/2, L/2, N)
 X, Y, Z = np.meshgrid(x, y, z, indexing='ij')
 
 mu0 = 4 * np.pi * 1e-7
-eta = 0.0009
+eta = 0.0010
+dt = 0.00045
+steps = 600
+max_v = 400 * 1000.0   # ← Fixed: velocity limiter cap
 
 r_cyl = np.sqrt(X**2 + Y**2)
 r_sph = np.sqrt(X**2 + Y**2 + Z**2 + 1e-8)
 
 # ====================== FIELDS ======================
-rho = 2.2e-24 * np.exp(-r_cyl / 13.0) * np.exp(-np.abs(Z)/5.0)
-J_z = 1.8e18 * np.exp(-r_cyl**2 / (2*5.5**2))
+rho = 2.5e-24 * np.exp(-r_cyl / 13.0) * np.exp(-np.abs(Z)/5.0)
+J_z = 1.4e18 * np.exp(-r_cyl**2 / (2*6.0**2))
 
 v0 = 230 * 1000.0
 v_theta = v0 * (1 - np.exp(-r_cyl / 6.0))
@@ -27,25 +30,25 @@ vx = -v_theta * (Y / (r_cyl + 1e-8))
 vy =  v_theta * (X / (r_cyl + 1e-8))
 vz = np.zeros_like(X, dtype=np.float32)
 
-Bx = By = Bz = np.zeros_like(X, dtype=np.float32) * 2e-9
-p = 4e-13 * rho
+Bx = By = Bz = np.zeros_like(X, dtype=np.float32) * 1e-9
+p = 5e-13 * rho
 
 # NFW Halo
 M_vir = 1.2e12 * 1.989e30
 rs = 20.0 * 3.086e19
-
-def nfw_enclosed_mass(r):
+def nfw_mass(r):
     x = r / rs
     m = np.log(1 + x) - x / (1 + x)
     return M_vir * (m / (np.log(2) - 0.5))
+M_enc_dm = nfw_mass(r_sph)
 
-M_enc_dm = nfw_enclosed_mass(r_sph)
+# Energy tracking
+time_steps = []
+e_mag_list = []
+e_kin_list = []
+e_therm_list = []
 
-# ====================== SIMULATION ======================
-dt = 0.00085
-steps = 500
-
-print(f"Running fixed 3D {N}³ simulation...")
+print("Starting simulation with energy tracking...\n")
 
 start = time.time()
 
@@ -57,10 +60,8 @@ for step in range(steps):
     
     dBx_dt = (np.gradient(vB_z, dx, axis=1) - np.gradient(vB_y, dx, axis=2)) + \
              eta * np.gradient(np.gradient(Bx, dx, axis=0), dx, axis=0)
-    
     dBy_dt = (np.gradient(vB_x, dx, axis=2) - np.gradient(vB_z, dx, axis=0)) + \
              eta * np.gradient(np.gradient(By, dx, axis=1), dx, axis=1)
-    
     dBz_dt = (np.gradient(vB_y, dx, axis=0) - np.gradient(vB_x, dx, axis=1)) + \
              eta * np.gradient(np.gradient(Bz, dx, axis=2), dx, axis=2)
     
@@ -69,30 +70,27 @@ for step in range(steps):
     Bz += dt * dBz_dt
     
     # Divergence cleaning
-    divB = (np.gradient(Bx, dx, axis=0) + 
-            np.gradient(By, dx, axis=1) + 
-            np.gradient(Bz, dx, axis=2))
-    Bx -= 0.28 * np.gradient(divB, dx, axis=0)
-    By -= 0.28 * np.gradient(divB, dx, axis=1)
-    Bz -= 0.28 * np.gradient(divB, dx, axis=2)
+    divB = (np.gradient(Bx, dx, axis=0) + np.gradient(By, dx, axis=1) + np.gradient(Bz, dx, axis=2))
+    Bx -= 0.25 * np.gradient(divB, dx, axis=0)
+    By -= 0.25 * np.gradient(divB, dx, axis=1)
+    Bz -= 0.25 * np.gradient(divB, dx, axis=2)
     
-    # Currents
+    # Currents & Lorentz
     Jx = (np.gradient(Bz, dx, axis=1) - np.gradient(By, dx, axis=2)) / mu0
     Jy = (np.gradient(Bx, dx, axis=2) - np.gradient(Bz, dx, axis=0)) / mu0
     Jz_total = J_z + (np.gradient(By, dx, axis=0) - np.gradient(Bx, dx, axis=1)) / mu0
     
-    # Lorentz force
     Fx = Jy * Bz - Jz_total * By
     Fy = Jz_total * Bx - Jx * Bz
     Fz = Jx * By - Jy * Bx
     
-    # Gravity (NFW)
+    # Gravity
     grav_dm = -6.6743e-11 * M_enc_dm / (r_sph**2 + 1e-8)
     Fx += grav_dm * (X / r_sph)
     Fy += grav_dm * (Y / r_sph)
     Fz += grav_dm * (Z / r_sph)
     
-    # Pressure gradient
+    # Pressure
     dpdx = np.gradient(p, dx, axis=0)
     dpdy = np.gradient(p, dx, axis=1)
     dpdz = np.gradient(p, dx, axis=2)
@@ -100,10 +98,18 @@ for step in range(steps):
     Fy -= dpdy
     Fz -= dpdz
     
-    # Velocity update
+    # Velocity update + limiter
     vx += dt * Fx / (rho + 1e-30)
     vy += dt * Fy / (rho + 1e-30)
     vz += dt * Fz / (rho + 1e-30)
+    
+    v_tot = np.sqrt(vx**2 + vy**2 + vz**2)
+    mask = v_tot > max_v
+    if np.any(mask):
+        scale = max_v / (v_tot[mask] + 1e-30)
+        vx[mask] *= scale
+        vy[mask] *= scale
+        vz[mask] *= scale
     
     # Continuity
     div_v = (np.gradient(rho*vx, dx, axis=0) + 
@@ -112,40 +118,71 @@ for step in range(steps):
     rho += dt * (-div_v)
     rho = np.maximum(rho, 5e-28)
     
-    if step % 100 == 0:
-        Bmag = np.sqrt(Bx**2 + By**2 + Bz**2).max() * 1e6
-        vmax = np.sqrt(vx**2 + vy**2 + vz**2).max() / 1000
-        print(f"Step {step:4d} | Max |B| = {Bmag:.2f} μG | Max |v| = {vmax:.1f} km/s")
+    # ====================== ENERGY DIAGNOSTICS ======================
+    if step % 60 == 0 or step == steps-1:
+        vol = dx**3
+        e_mag = np.sum((Bx**2 + By**2 + Bz**2) / (2 * mu0)) * vol
+        e_kin = np.sum(0.5 * rho * (vx**2 + vy**2 + vz**2)) * vol
+        e_therm = np.sum(1.5 * p) * vol                    # for gamma=5/3
+        
+        time_steps.append(step * dt)
+        e_mag_list.append(e_mag)
+        e_kin_list.append(e_kin)
+        e_therm_list.append(e_therm)
+        
+        Bmax = np.sqrt(Bx**2 + By**2 + Bz**2).max() * 1e6
+        vmax = v_tot.max() / 1000
+        beta = np.mean(p / ((Bx**2 + By**2 + Bz**2)/(2*mu0) + 1e-30))
+        
+        print(f"Step {step:4d} | Bmax = {Bmax:.2f} μG | vmax = {vmax:.1f} km/s | β = {beta:.3f}")
+        print(f"   E_mag = {e_mag:.2e} J | E_kin = {e_kin:.2e} J | E_therm = {e_therm:.2e} J")
 
-print(f"Finished in {time.time() - start:.1f} s")
+print(f"\nSimulation finished in {time.time() - start:.1f} s")
 
-# ====================== ROTATION CURVE ======================
+# ====================== PLOTS ======================
+plt.figure(figsize=(15, 10))
+
+plt.subplot(2, 2, 1)
+plt.plot(time_steps, e_mag_list, 'magenta', lw=2, label='Magnetic Energy')
+plt.plot(time_steps, e_kin_list, 'cyan', lw=2, label='Kinetic Energy')
+plt.plot(time_steps, e_therm_list, 'lime', lw=2, label='Thermal Energy')
+plt.title('Energy Evolution')
+plt.xlabel('Time (s)')
+plt.ylabel('Energy (J)')
+plt.legend()
+plt.grid(True)
+
+plt.subplot(2, 2, 2)
+total = np.array(e_mag_list) + np.array(e_kin_list) + np.array(e_therm_list)
+plt.plot(time_steps, np.array(e_mag_list)/total, 'magenta', label='Magnetic')
+plt.plot(time_steps, np.array(e_kin_list)/total, 'cyan', label='Kinetic')
+plt.title('Energy Fractions')
+plt.xlabel('Time (s)')
+plt.ylabel('Fraction')
+plt.legend()
+plt.grid(True)
+
+# Mid-plane visuals
 mid = N // 2
-r_plot = r_cyl[:,:,mid].flatten()
-v_phi = (X[:,:,mid]*vy[:,:,mid] - Y[:,:,mid]*vx[:,:,mid]) / (r_plot + 1e-8)
-v_phi = v_phi.flatten() / 1000
-
-bins = np.linspace(0, L/2, 50)
-v_rot = []
-for i in range(len(bins)-1):
-    mask = (r_plot > bins[i]) & (r_plot < bins[i+1])
-    v_rot.append(np.mean(np.abs(v_phi[mask])) if np.any(mask) else 0)
-
-plt.figure(figsize=(14, 6))
-plt.subplot(1, 2, 1)
+plt.subplot(2, 2, 3)
 plt.imshow(np.sqrt(Bx[:,:,mid]**2 + By[:,:,mid]**2), cmap='magma')
 plt.title('|B| mid-plane')
 plt.colorbar()
 
-plt.subplot(1, 2, 2)
-plt.plot(bins[:-1], v_rot, 'cyan', lw=2.5, label='Plasma + NFW DM')
-plt.axhline(230, color='red', ls='--', label='~230 km/s')
-plt.title('Emergent Rotation Curve')
+plt.subplot(2, 2, 4)
+r_plot = r_cyl[:,:,mid].flatten()
+v_phi = (X[:,:,mid]*vy[:,:,mid] - Y[:,:,mid]*vx[:,:,mid]) / (r_plot + 1e-8)
+v_phi = v_phi.flatten() / 1000
+bins = np.linspace(0, L/2, 50)
+v_rot = [np.mean(np.abs(v_phi[(r_plot > bins[i]) & (r_plot < bins[i+1])])) 
+         if np.any((r_plot > bins[i]) & (r_plot < bins[i+1])) else 0 for i in range(len(bins)-1)]
+plt.plot(bins[:-1], v_rot, 'cyan', lw=2.5)
+plt.axhline(230, color='red', ls='--')
+plt.title('Rotation Curve')
 plt.xlabel('Radius')
 plt.ylabel('Velocity [km/s]')
-plt.legend()
-plt.grid(alpha=0.3)
+plt.grid(True)
 
-plt.suptitle('v1.5.2 Fixed — Pure First-Principles 3D MHD + NFW Halo')
+plt.suptitle('v1.6.1 Magnetic Energy Evolution in Galactic Plasma')
 plt.tight_layout()
 plt.show()
