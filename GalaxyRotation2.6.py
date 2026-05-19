@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-print("🌌 Plasma Cosmology v2.3 — Full CT + Proper Outflow Boundaries")
+print("🌌 Plasma Cosmology v2.4 — Full CT + Fixed Staggered Initialization")
 
 # ====================== GRID ======================
 N = 72
@@ -21,21 +21,33 @@ dt = 0.00012
 steps = 500
 max_v = 300 * 1000.0
 
-# ====================== FIELDS ======================
-rho = 3.2e-24 * np.exp(-r_cyl / 13.0) * np.exp(-np.abs(Z)/5.0)
-J_z_cell = 8.0e17 * np.exp(-r_cyl**2 / (2*7.8**2))
-
-vx = np.zeros_like(X, dtype=np.float32)
-vy = np.zeros_like(X, dtype=np.float32)
-vz = np.zeros_like(X, dtype=np.float32)
-
+# ====================== STAGGERED FIELDS ======================
 Bx = np.zeros((N+1, N, N), dtype=np.float32)
 By = np.zeros((N, N+1, N), dtype=np.float32)
 Bz = np.zeros((N, N, N+1), dtype=np.float32)
 
-Bz[...] = 7.5e-10 * np.exp(-r_cyl / 14.0)
+rho = np.zeros((N, N, N), dtype=np.float32)
+vx = np.zeros((N, N, N), dtype=np.float32)
+vy = np.zeros((N, N, N), dtype=np.float32)
+vz = np.zeros((N, N, N), dtype=np.float32)
+p = np.zeros((N, N, N), dtype=np.float32)
 
-p = 9e-13 * rho
+# ====================== INITIAL CONDITIONS ======================
+rho[...] = 3.2e-24 * np.exp(-r_cyl / 13.0) * np.exp(-np.abs(Z)/5.0)
+J_z_cell = 8.0e17 * np.exp(-r_cyl**2 / (2*7.8**2))
+
+# Zero initial rotation
+vx[...] = 0.0
+vy[...] = 0.0
+vz[...] = 0.0
+
+# Weak seed B on faces (proper interpolation)
+# For Bz (z-faces)
+for k in range(N+1):
+    z_face = -L/2 + k * dx
+    Bz[:,:,k] = 7.5e-10 * np.exp(-(r_cyl**2 + z_face**2) / (14.0**2))
+
+p[...] = 9e-13 * rho
 
 # NFW
 M_vir = 1.2e12 * 1.989e30
@@ -46,17 +58,17 @@ def nfw_mass(r):
     return M_vir * (m / (np.log(2) - 0.5))
 M_enc_dm = nfw_mass(r_sph)
 
-print("Starting v2.3 with outflow boundaries...\n")
+print("Starting v2.4 with proper staggered initialization...\n")
 
 start = time.time()
 
 for step in range(steps):
-    # === Edge EMFs (proper averaging) ===
+    # Edge EMFs
     Ex = np.zeros((N, N+1, N+1), dtype=np.float32)
     Ey = np.zeros((N+1, N, N+1), dtype=np.float32)
     Ez = np.zeros((N+1, N+1, N), dtype=np.float32)
 
-    # Ex (y-z edges)
+    # Proper averaging for Ex (y-z edges)
     vy_avg = 0.25 * (vy[:, :-1, :-1] + vy[:, 1:, :-1] + vy[:, :-1, 1:] + vy[:, 1:, 1:])
     vz_avg = 0.25 * (vz[:, :-1, :-1] + vz[:, 1:, :-1] + vz[:, :-1, 1:] + vz[:, 1:, 1:])
     By_avg = 0.5 * (By[:, :-1, :] + By[:, 1:, :])
@@ -77,7 +89,7 @@ for step in range(steps):
     By_avg = 0.5 * (By[:, :-1, :] + By[:, 1:, :])
     Ez[1:, 1:, :] = -(vx_avg * By_avg - vy_avg * Bx_avg)
 
-    # Update B (CT circulation)
+    # Update B using circulation
     Bx[1:-1] += dt * ((Ez[:,1:,1:] - Ez[:,:-1,1:]) - (Ey[:,1:,1:] - Ey[:,1:,:-1])) / dx
     By[:,1:-1] += dt * ((Ex[:,1:,1:] - Ex[:,1:,:-1]) - (Ez[1:,1:,1:] - Ez[:-1,1:,1:])) / dx
     Bz[:,:,1:-1] += dt * ((Ey[1:,1:,1:] - Ey[:-1,1:,1:]) - (Ex[:,1:,1:] - Ex[:,:-1,1:])) / dx
@@ -87,7 +99,7 @@ for step in range(steps):
     By_c = (By[:,:-1] + By[:,1:]) / 2
     Bz_c = (Bz[:,:,:-1] + Bz[:,:,1:]) / 2
 
-    # Lorentz
+    # Lorentz force
     Jx = (np.gradient(Bz_c, dx, axis=1) - np.gradient(By_c, dx, axis=2)) / mu0
     Jy = (np.gradient(Bx_c, dx, axis=2) - np.gradient(Bz_c, dx, axis=0)) / mu0
     Jz_total = J_z_cell + (np.gradient(By_c, dx, axis=0) - np.gradient(Bx_c, dx, axis=1)) / mu0
@@ -166,6 +178,6 @@ plt.xlabel('Radius')
 plt.ylabel('Velocity [km/s]')
 plt.grid(True)
 
-plt.suptitle('Plasma Cosmology v2.3 — Full CT + Outflow Boundaries')
+plt.suptitle('Plasma Cosmology v2.4 — Full CT with Proper Boundaries')
 plt.tight_layout()
 plt.show()
