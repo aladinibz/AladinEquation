@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 
-print("🌌 Plasma Cosmology v4.9 — Improved Pure Plasma Galactic Mode")
+print("🌌 Plasma Cosmology v4.9 FIXED — Pure Plasma Galactic Mode")
 
 # ====================== CONTROLS ======================
-RUN_COMPARISON = True     # Run both pure plasma and with DM
+USE_DM = False          # Set True for comparison with DM
 USE_CR = True
 
 # ====================== GRID ======================
@@ -23,36 +23,31 @@ gamma = 5.0/3.0
 CFL = 0.35
 ch = 2.0
 kappa = 0.5
-steps = 1200
+steps = 1000
 max_v = 350 * 1000.0
 vol = dx**3
 
 def run_galaxy(use_dm):
-    # Reset fields
     rho = 1.8e-21 * np.exp(-r_cyl / 12.0) * np.exp(-np.abs(Z)/4.0)
-    E_total = np.zeros((N, N, N), dtype=np.float32)
     vx = np.zeros((N, N, N), dtype=np.float32)
     vy = np.zeros((N, N, N), dtype=np.float32)
     vz = np.zeros((N, N, N), dtype=np.float32)
     u_cr = 1.6e-13 * np.exp(-r_cyl / 15.0) * np.exp(-np.abs(Z)/6.0) if USE_CR else np.zeros_like(rho)
 
-    # Much weaker imposed current (more self-consistent)
-    J_z = 2.5e17 * np.exp(-r_cyl**2 / (2*12.0**2))
+    J_z = 2.8e17 * np.exp(-r_cyl**2 / (2*11.0**2))   # reduced imposed current
 
     Bx = np.zeros((N+1, N, N), dtype=np.float32)
     By = np.zeros((N, N+1, N), dtype=np.float32)
     Bz = np.zeros((N, N, N+1), dtype=np.float32)
     psi = np.zeros((N, N, N), dtype=np.float32)
 
-    # Weak seed B
     for k in range(N+1):
         zf = -L/2 + k*dx
         r2d = np.sqrt(X[:,:,0]**2 + Y[:,:,0]**2)
-        Bz[:,:,k] = 1.8e-10 * np.exp(-r2d**2 / 250.0) * np.exp(-zf**2 / 40.0)
+        Bz[:,:,k] = 2.2e-10 * np.exp(-r2d**2 / 220.0) * np.exp(-zf**2 / 35.0)
 
     M_enc_dm = nfw_mass(r_sph) if use_dm else np.zeros_like(r_sph)
 
-    # Initial energy
     p_th = 2e-12 * rho
     kin = 0.5 * rho * (vx**2 + vy**2 + vz**2)
     E_total = p_th / (gamma - 1) + kin + u_cr
@@ -61,7 +56,6 @@ def run_galaxy(use_dm):
     e_mag_h = []
     e_therm_h = []
     e_cr_h = []
-    Lz_h = []   # angular momentum
 
     for step in range(steps):
         Bx_c = (Bx[:-1] + Bx[1:]) / 2
@@ -69,10 +63,39 @@ def run_galaxy(use_dm):
         Bz_c = (Bz[:,:,:-1] + Bz[:,:,1:]) / 2
         B2 = Bx_c**2 + By_c**2 + Bz_c**2
 
-        # CFL + CT + Hyperbolic cleaning (stable block)
-        # [CT + cleaning from previous versions - kept for brevity]
+        # CFL
+        vtot = np.sqrt(vx**2 + vy**2 + vz**2)
+        p_thermal = (gamma-1) * (E_total - 0.5*rho*vtot**2 - B2/(2*mu0) - u_cr)
+        cs = np.sqrt(gamma * np.maximum(p_thermal, 0) / (rho + 1e-30))
+        ca = np.sqrt(B2 / (mu0 * rho + 1e-30))
+        cmax = vtot.max() + cs.max() + ca.max() + ch
+        dt = CFL * dx / cmax
 
-        # Lorentz
+        # CT + EMFs
+        Ex = np.zeros((N, N+1, N+1), dtype=np.float32)
+        Ey = np.zeros((N+1, N, N+1), dtype=np.float32)
+        Ez = np.zeros((N+1, N+1, N), dtype=np.float32)
+
+        Ex[:,1:,1:] = -(vy * Bz_c - vz * By_c)
+        Ey[1:,:,1:] = -(vz * Bx_c - vx * Bz_c)
+        Ez[1:,1:,:] = -(vx * By_c - vy * Bx_c)
+
+        curlEx = ((Ez[1:-1,1:,:] - Ez[1:-1,:-1,:]) - (Ey[1:-1,:,1:] - Ey[1:-1,:,:-1])) / dx
+        curlEy = ((Ex[:,:,1:] - Ex[:,:,:-1]) - (Ez[1:,:,:] - Ez[:-1,:,:])) / dx
+        curlEz = ((Ey[1:,:,:] - Ey[:-1,:,:]) - (Ex[:,1:,:] - Ex[:,:-1,:])) / dx
+
+        Bx[1:-1] += dt * curlEx
+        By[:,1:-1] += dt * curlEy
+        Bz[:,:,1:-1] += dt * curlEz
+
+        # Hyperbolic cleaning
+        divB = (np.gradient(Bx_c, dx, axis=0) + np.gradient(By_c, dx, axis=1) + np.gradient(Bz_c, dx, axis=2))
+        psi -= dt * (ch**2 * divB + (ch / (kappa * dx)) * psi)
+        Bx[1:-1] -= dt * np.gradient(psi, dx, axis=0)
+        By[:,1:-1] -= dt * np.gradient(psi, dx, axis=1)
+        Bz[:,:,1:-1] -= dt * np.gradient(psi, dx, axis=2)
+
+        # Forces
         Jx = (np.gradient(Bz_c, dx, axis=1) - np.gradient(By_c, dx, axis=2)) / mu0
         Jy = (np.gradient(Bx_c, dx, axis=2) - np.gradient(Bz_c, dx, axis=0)) / mu0
         Jz_total = J_z + (np.gradient(By_c, dx, axis=0) - np.gradient(Bx_c, dx, axis=1)) / mu0
@@ -108,14 +131,13 @@ def run_galaxy(use_dm):
         rho += dt * (-div_v)
         rho = np.maximum(rho, 1e-25)
 
-        # Simple CR transport
         if USE_CR:
             div_cr = (np.gradient(u_cr*vx, dx, axis=0) + np.gradient(u_cr*vy, dx, axis=1) + np.gradient(u_cr*vz, dx, axis=2))
             lap_cr = sum(np.gradient(np.gradient(u_cr, dx, axis=i), dx, axis=i) for i in range(3))
             source = 2.5e-15 * np.exp(-r_cyl / 8.0) * np.exp(-np.abs(Z)/3.0)
             u_cr += dt * (-div_cr + 3e-4 * lap_cr + source)
 
-        # Energy & Angular Momentum diagnostics
+        # Diagnostics
         if step % 100 == 0 or step == steps-1:
             kin = np.sum(0.5 * rho * v_tot**2) * vol
             mag = np.sum(B2 / (2*mu0)) * vol
@@ -123,30 +145,22 @@ def run_galaxy(use_dm):
             cr_e = np.sum(u_cr) * vol if USE_CR else 0
             total = kin + mag + therm + cr_e
 
-            Lz = np.sum(rho * (X*vy - Y*vx) * r_cyl) * vol   # approximate angular momentum
-
             e_kin_h.append(kin)
             e_mag_h.append(mag)
             e_therm_h.append(therm)
             e_cr_h.append(cr_e)
-            Lz_h.append(Lz)
 
             Bmax = np.sqrt(B2).max() * 1e6
             vmax = v_tot.max() / 1000
-            print(f"Step {step:4d} | B = {Bmax:.2f} μG | v = {vmax:.1f} km/s | Lz = {Lz:.2e}")
+            print(f"Step {step:4d} | B = {Bmax:.2f} μG | v = {vmax:.1f} km/s")
 
-    return e_kin_h, e_mag_h, e_therm_h, e_cr_h, Lz_h, v_tot, Bx_c, By_c, Bz_c, r_cyl
+    return e_kin_h, e_mag_h, e_therm_h, e_cr_h, v_tot, Bx_c, By_c, Bz_c, r_cyl
 
-# Run comparison
-if RUN_COMPARISON:
-    print("Running Pure Plasma...")
-    kin_p, mag_p, therm_p, cr_p, Lz_p, v_p, Bx_p, By_p, Bz_p, r_p = run_galaxy(False)
-    print("\nRunning with DM...")
-    kin_d, mag_d, therm_d, cr_d, Lz_d, v_d, Bx_d, By_d, Bz_d, r_d = run_galaxy(True)
-else:
-    kin_p, mag_p, therm_p, cr_p, Lz_p, v_p, Bx_p, By_p, Bz_p, r_p = run_galaxy(USE_DM)
+# Run
+print("Running Pure Plasma mode...")
+kin_p, mag_p, therm_p, cr_p, v_p, Bx_p, By_p, Bz_p, r_p = run_galaxy(False)
 
-# ====================== PLOTS ======================
+# ====================== ROTATION CURVE ======================
 mid = N // 2
 r_plot = r_p[:,:,mid].flatten()
 v_phi = (X[:,:,mid]*vy[:,:,mid] - Y[:,:,mid]*vx[:,:,mid]) / (r_plot + 1e-8)
@@ -156,29 +170,29 @@ bins = np.linspace(0, L/2, 60)
 v_rot = [np.mean(np.abs(v_phi[(r_plot > bins[i]) & (r_plot < bins[i+1])])) 
          if np.any((r_plot > bins[i]) & (r_plot < bins[i+1])) else 0 for i in range(len(bins)-1)]
 
-plt.figure(figsize=(14, 10))
+plt.figure(figsize=(14, 6))
 
-plt.subplot(2, 2, 1)
-plt.plot(bins[:-1], v_rot, 'cyan', lw=2.5, label='Pure Plasma')
-plt.axhline(230, color='red', ls='--', label='Observed ~230 km/s')
+plt.subplot(1, 2, 1)
+plt.plot(bins[:-1], v_rot, 'cyan', lw=2.5, label='Pure Plasma + CR')
+plt.axhline(230, color='red', ls='--', label='Observed flat ~230 km/s')
 plt.xlabel('Radius (kpc)')
 plt.ylabel('Velocity (km/s)')
-plt.title('Rotation Curve')
+plt.title('Rotation Curve — Pure Plasma Mode')
 plt.legend()
 plt.grid(True)
 
-plt.subplot(2, 2, 2)
+plt.subplot(1, 2, 2)
 plt.plot(kin_p, label='Kinetic', color='cyan')
 plt.plot(mag_p, label='Magnetic', color='magenta')
 plt.plot(therm_p, label='Thermal', color='lime')
 if USE_CR:
-    plt.plot(cr_p, label='CR', color='orange')
+    plt.plot(cr_p, label='Cosmic Ray', color='orange')
 plt.xlabel('Step')
 plt.ylabel('Energy')
-plt.title('Energy Budget — Pure Plasma')
+plt.title('Energy Budget')
 plt.legend()
 plt.grid(True)
 
-plt.suptitle('v4.9 Galactic Plasma Simulation — Pure Plasma Focus')
+plt.suptitle('v4.9 Pure Plasma Galactic Simulation')
 plt.tight_layout()
 plt.show()
